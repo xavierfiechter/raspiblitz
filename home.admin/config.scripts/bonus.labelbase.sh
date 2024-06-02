@@ -10,7 +10,8 @@ GITHUB_SIGN_FINGERPRINT=""
 
 # Basic variables
 LABELBASE_HOME="/home/${APPID}/"
-
+LABELBASE_DJANGO="/${LABELBASE_HOME}/${APPID}/django/"
+LABELBASE_ENV="${LABELBASE_HOME}ENV/"
 
 PORT_CLEAR="8089"
 PORT_SSL="12349"
@@ -196,6 +197,14 @@ if [ "$1" = "1" ] || [ "$1" = "on" ]; then
   echo "# install from source code"
   # make sure mysql/myria db is available & running
   sudo apt-get install -y mariadb-server mariadb-client
+  sudo apt-get install -y \
+      default-libmysqlclient-dev \
+      build-essential \
+      cron vim logrotate \
+      libpcre3-dev \
+      default-mysql-client \
+      python3-pip \
+      virtualenv
   sudo systemctl enable mariadb 2>/dev/null
   sudo systemctl start mariadb 2>/dev/null
 
@@ -221,25 +230,37 @@ if [ "$1" = "1" ] || [ "$1" = "on" ]; then
   # your app could have a complete other way to install - check other install scripts as examples.
   echo "# compile/install the app"
 
-  generate_password() {
-      # Use OpenSSL to generate random bytes and encode them in base64
-      openssl rand -base64 "${1:-16}" | tr -d '+/' | fold -w "${1:-16}" | head -n 1
-  }
+
 
 
   sudo touch ${LABELBASE_HOME}/exports.sh
   sudo chown ${APPID}:${APPID} ${LABELBASE_HOME}/exports.sh
   sudo chmod 755 ${LABELBASE_HOME}/exports.sh
+  sudo pip install --upgrade pip
+
+
+  sudo -u ${APPID} virtualenv -p python3 ${LABELBASE_ENV}
+  #sudo -u ${APPID}  sh -c '${LABELBASE_ENV}/bin/activate'
+
+  #sudo -u ${APPID}
+  #sudo -u ${APPID} pip install --no-cache-dir -r ${LABELBASE_HOME}labelbase/django/requirements.txt
+
+  sudo -u ${APPID}  bash -c '. /home/labelbase/ENV/bin/activate && pip install --no-cache-dir -r /home/labelbase/labelbase/django/requirements.txt'
+
+
 
   if [ -f "${LABELBASE_HOME}/exports.sh" ]; then
     echo "INFO: The file '${LABELBASE_HOME}/exports.sh' already exists."
   else
+    generate_password() {
+        # Use OpenSSL to generate random bytes and encode them in base64
+        openssl rand -base64 "${1:-16}" | tr -d '+/' | fold -w "${1:-16}" | head -n 1
+    }
     MYSQL_PASSWORD=$(generate_password 32)
     sudo -u ${APPID} bash -c "echo 'export MYSQL_PASSWORD=${MYSQL_PASSWORD}' > /home/labelbase/exports.sh"
   fi
   source ${LABELBASE_HOME}/exports.sh
 
-  cd /home/${APPID}/${APPID}
 
   isActive=$(sudo ls /etc/systemd/system/${APPID}.service 2>/dev/null | grep -c '${APPID}.service')
   if [ ${isActive} -eq 0 ]; then
@@ -251,6 +272,9 @@ if [ "$1" = "1" ] || [ "$1" = "on" ]; then
     sudo mariadb -e "FLUSH PRIVILEGES;"
   fi
 
+  cd ${LABELBASE_DJANGO}
+
+  sudo -u ${APPID}  bash -c '. /home/labelbase/ENV/bin/activate && . /home/labelbase/exports.sh && /home/labelbase/labelbase/django/run.sh'
 
   #sudo -u ${APPID} npm install --only=prod --logLevel warn
   #if ! [ $? -eq 0 ]; then
@@ -272,8 +296,8 @@ if [ "$1" = "1" ] || [ "$1" = "on" ]; then
   echo "
 [Unit]
 Description=${APPID}
-#Wants=bitcoind
-#After=bitcoind
+Wants=bitcoind
+After=bitcoind
 
 [Service]
 WorkingDirectory=/home/${APPID}
@@ -323,36 +347,26 @@ server {
     include /etc/nginx/snippets/ssl-certificate-app-data.conf;
     access_log /var/log/nginx/access_${APPID}.log;
     error_log /var/log/nginx/error_${APPID}.log;
-    client_max_body_size 100M;
-    # Increase the proxy headers hash sizes within the server block
-    proxy_headers_hash_max_size 1024;
-    proxy_headers_hash_bucket_size 128;
     location / {
         proxy_pass http://127.0.0.1:${PORT_CLEAR};
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_buffers 4 32k;
-        proxy_buffer_size 32k;
         include /etc/nginx/snippets/ssl-proxy-params.conf;
     }
     location /static {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
     location /media {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
     location /attachments/attachment {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
 }
@@ -365,36 +379,26 @@ server {
       server_name localhost;
       access_log /var/log/nginx/access_${APPID}.log;
       error_log /var/log/nginx/error_${APPID}.log;
-      client_max_body_size 100M;
-      # Increase the proxy headers hash sizes within the server block
-      proxy_headers_hash_max_size 1024;
-      proxy_headers_hash_bucket_size 128;
       location / {
           proxy_pass http://127.0.0.1:${PORT_CLEAR};
-          proxy_set_header Host \$host;
-          proxy_set_header X-Real-IP \$remote_addr;
-          proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-          proxy_set_header X-Forwarded-Proto \$scheme;
-          proxy_buffers 4 32k;
-          proxy_buffer_size 32k;
           include /etc/nginx/snippets/ssl-proxy-params.conf;
       }
       location /static {
           autoindex off;
           index index.html;
-          root /app;
+          root /home/labelbase/labelbase/django;
           break;
       }
       location /media {
           autoindex off;
           index index.html;
-          root /app;
+          root /home/labelbase/labelbase/django;
           break;
       }
       location /attachments/attachment {
           autoindex off;
           index index.html;
-          root /app;
+          root /home/labelbase/labelbase/django;
           break;
       }
       error_page 500 502 503 504 /50x.html;
@@ -414,39 +418,29 @@ server {
     include /etc/nginx/snippets/ssl-certificate-app-data-tor.conf;
     access_log /var/log/nginx/access_${APPID}.log;
     error_log /var/log/nginx/error_${APPID}.log;
-    client_max_body_size 100M;
-    # Increase the proxy headers hash sizes within the server block
-    proxy_headers_hash_max_size 1024;
-    proxy_headers_hash_bucket_size 128;
     location / {
         proxy_pass http://127.0.0.1:${PORT_CLEAR};
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_buffers 4 32k;
-        proxy_buffer_size 32k;
         include /etc/nginx/snippets/ssl-proxy-params.conf;
     }
 
     location /static {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
 
     location /media {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
 
     location /attachments/attachment {
         autoindex off;
         index index.html;
-        root /app;
+        root /home/labelbase/labelbase/django;
         break;
     }
 
